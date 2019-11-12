@@ -880,7 +880,11 @@ func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.Blo
 	// Setup the gas pool (also for unmetered requests)
 	// and apply the message.
 	gp := new(core.GasPool).AddGas(math.MaxUint64)
-	res, gas, failed, err := core.ApplyMessage(evm, msg, gp)
+	var gp1559 *core.GasPool
+	if evm.ChainConfig().IsEIP1559(header.Number) {
+		gp1559 = new(core.GasPool).AddGas(params.MaxGasEIP1559)
+	}
+	res, gas, failed, err := core.ApplyMessage(evm, msg, gp, gp1559)
 	if err := vmError(); err != nil {
 		return nil, 0, false, err
 	}

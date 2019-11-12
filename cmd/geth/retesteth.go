@@ -492,6 +492,10 @@ func (api *RetestethAPI) mineBlock() error {
 		misc.ApplyDAOHardFork(statedb)
 	}
 	gasPool := new(core.GasPool).AddGas(header.GasLimit)
+	var gp1559 *core.GasPool
+	if api.chainConfig.IsEIP1559(header.Number) {
+		gp1559 = new(core.GasPool).AddGas(params.MaxGasEIP1559)
+	}
 	txCount := 0
 	var txs []*types.Transaction
 	var receipts []*types.Receipt
@@ -512,6 +516,7 @@ func (api *RetestethAPI) mineBlock() error {
 					api.blockchain,
 					&api.author,
 					gasPool,
+					gp1559,
 					statedb,
 					header, tx, &header.GasUsed, *api.blockchain.GetVMConfig(),
 				)
@@ -655,7 +660,11 @@ func (api *RetestethAPI) AccountRange(ctx context.Context,
 			context := core.NewEVMContext(msg, block.Header(), api.blockchain, nil)
 			// Not yet the searched for transaction, execute on top of the current state
 			vmenv := vm.NewEVM(context, statedb, api.blockchain.Config(), vm.Config{})
-			if _, _, _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
+			var gp1559 *core.GasPool
+			if vmenv.ChainConfig().IsEIP1559(block.Number()) {
+				gp1559 = new(core.GasPool).AddGas(params.MaxGasEIP1559)
+			}
+			if _, _, _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), gp1559); err != nil {
 				return AccountRangeResult{}, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 			}
 			// Ensure any modifications are committed to the state
@@ -765,7 +774,11 @@ func (api *RetestethAPI) StorageRangeAt(ctx context.Context,
 			context := core.NewEVMContext(msg, block.Header(), api.blockchain, nil)
 			// Not yet the searched for transaction, execute on top of the current state
 			vmenv := vm.NewEVM(context, statedb, api.blockchain.Config(), vm.Config{})
-			if _, _, _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
+			var gp1559 *core.GasPool
+			if vmenv.ChainConfig().IsEIP1559(block.Number()) {
+				gp1559 = new(core.GasPool).AddGas(params.MaxGasEIP1559)
+			}
+			if _, _, _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas()), gp1559); err != nil {
 				return StorageRangeResult{}, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
 			}
 			// Ensure any modifications are committed to the state
