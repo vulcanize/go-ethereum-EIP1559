@@ -735,12 +735,14 @@ func (s *PublicBlockChainAPI) GetStorageAt(ctx context.Context, address common.A
 
 // CallArgs represents the arguments for a call.
 type CallArgs struct {
-	From     *common.Address `json:"from"`
-	To       *common.Address `json:"to"`
-	Gas      *hexutil.Uint64 `json:"gas"`
-	GasPrice *hexutil.Big    `json:"gasPrice"`
-	Value    *hexutil.Big    `json:"value"`
-	Data     *hexutil.Bytes  `json:"data"`
+	From       *common.Address `json:"from"`
+	To         *common.Address `json:"to"`
+	Gas        *hexutil.Uint64 `json:"gas"`
+	GasPrice   *hexutil.Big    `json:"gasPrice"`
+	Value      *hexutil.Big    `json:"value"`
+	Data       *hexutil.Bytes  `json:"data"`
+	GasPremium *hexutil.Big    `json:"gasPremium"`
+	FeeCap     *hexutil.Big    `json:"feeCap"`
 }
 
 // account indicates the overriding fields of account during the execution of
@@ -759,6 +761,23 @@ type account struct {
 
 func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.BlockNumberOrHash, overrides map[common.Address]account, vmCfg vm.Config, timeout time.Duration, globalGasCap *big.Int) ([]byte, uint64, bool, error) {
 	defer func(start time.Time) { log.Debug("Executing EVM call finished", "runtime", time.Since(start)) }(time.Now())
+
+	// EIP1559 guards
+	if b.ChainConfig().IsEIP1559Finalized(b.CurrentBlock().Number()) && args.GasPremium == nil || args.FeeCap == nil || args.GasPrice != nil {
+		return nil, 0, false, fmt.Errorf("after block %d EIP1559 is finalized and transactions must contain a GasPremium and FeeCap and not contain a GasPrice", b.ChainConfig().EIP1559FinalizedBlock.Uint64())
+	}
+	if !b.ChainConfig().IsEIP1559(b.CurrentBlock().Number()) && args.GasPremium != nil || args.FeeCap != nil || args.GasPrice == nil {
+		return nil, 0, false, fmt.Errorf("before block %d EIP1559 is not activated and transactions must contain a GasPrice and not contain a GasPremium or FeeCap", b.ChainConfig().EIP1559Block.Uint64())
+	}
+	if args.GasPrice != nil && (args.GasPremium != nil || args.FeeCap != nil) {
+		return nil, 0, false, errors.New("if GasPrice is set, GasPremium and FeeCap must not be set")
+	}
+	if args.FeeCap != nil && args.GasPremium == nil {
+		return nil, 0, false, errors.New("if FeeCap is set, GasPremium must be set")
+	}
+	if args.GasPremium != nil && args.FeeCap == nil {
+		return nil, 0, false, errors.New("if GasPremium is set, FeeCap must be set")
+	}
 
 	state, header, err := b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
 	if state == nil || err != nil {
@@ -812,9 +831,13 @@ func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.Blo
 		log.Warn("Caller gas above allowance, capping", "requested", gas, "cap", globalGasCap)
 		gas = globalGasCap.Uint64()
 	}
-	gasPrice := new(big.Int).SetUint64(defaultGasPrice)
-	if args.GasPrice != nil {
-		gasPrice = args.GasPrice.ToInt()
+
+	var gasPrice *big.Int
+	if args.GasPremium == nil {
+		gasPrice = new(big.Int).SetUint64(defaultGasPrice)
+		if args.GasPrice != nil {
+			gasPrice = args.GasPrice.ToInt()
+		}
 	}
 
 	value := new(big.Int)
@@ -828,7 +851,7 @@ func DoCall(ctx context.Context, b Backend, args CallArgs, blockNrOrHash rpc.Blo
 	}
 
 	// Create new call message
-	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, data, false, nil, nil)
+	msg := types.NewMessage(addr, args.To, 0, value, gas, gasPrice, data, false, (*big.Int)(args.GasPremium), (*big.Int)(args.FeeCap))
 
 	// Setup context so it may be cancelled the call has completed
 	// or, in case of unmetered gas, setup a context with a timeout.
@@ -1359,11 +1382,31 @@ type SendTxArgs struct {
 	// newer name and should be preferred by clients.
 	Data  *hexutil.Bytes `json:"data"`
 	Input *hexutil.Bytes `json:"input"`
+	// EIP1559 fields
+	GasPremium *hexutil.Big `json:"gasPremium"`
+	FeeCap     *hexutil.Big `json:"feeCap"`
 }
 
 // setDefaults is a helper function that fills in default values for unspecified tx fields.
 func (args *SendTxArgs) setDefaults(ctx context.Context, b Backend) error {
-	if args.GasPrice == nil {
+	// EIP1559 guards
+	if b.ChainConfig().IsEIP1559Finalized(b.CurrentBlock().Number()) && args.GasPremium == nil || args.FeeCap == nil || args.GasPrice != nil {
+		return fmt.Errorf("after block %d EIP1559 is finalized and transactions must contain a GasPremium and FeeCap and not contain a GasPrice", b.ChainConfig().EIP1559FinalizedBlock.Uint64())
+	}
+	if !b.ChainConfig().IsEIP1559(b.CurrentBlock().Number()) && args.GasPremium != nil || args.FeeCap != nil || args.GasPrice == nil {
+		return fmt.Errorf("before block %d EIP1559 is not activated and transactions must contain a GasPrice and not contain a GasPremium or FeeCap", b.ChainConfig().EIP1559Block.Uint64())
+	}
+	if args.GasPrice != nil && (args.GasPremium != nil || args.FeeCap != nil) {
+		return errors.New("if GasPrice is set, GasPremium and FeeCap must not be set")
+	}
+	if args.FeeCap != nil && args.GasPremium == nil {
+		return errors.New("if FeeCap is set, GasPremium must be set")
+	}
+	if args.GasPremium != nil && args.FeeCap == nil {
+		return errors.New("if GasPremium is set, FeeCap must be set")
+	}
+	// If EIP1559 is activated but not finalized and neither a GasPrice, GasPremium, or FeeCap are provided default to suggesting a GasPrice
+	if args.GasPrice == nil && args.GasPremium == nil {
 		price, err := b.SuggestPrice(ctx)
 		if err != nil {
 			return err
@@ -1404,11 +1447,13 @@ func (args *SendTxArgs) setDefaults(ctx context.Context, b Backend) error {
 			input = args.Data
 		}
 		callArgs := CallArgs{
-			From:     &args.From, // From shouldn't be nil
-			To:       args.To,
-			GasPrice: args.GasPrice,
-			Value:    args.Value,
-			Data:     input,
+			From:       &args.From, // From shouldn't be nil
+			To:         args.To,
+			GasPrice:   args.GasPrice,
+			Value:      args.Value,
+			Data:       input,
+			GasPremium: args.GasPremium,
+			FeeCap:     args.FeeCap,
 		}
 		pendingBlockNr := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 		estimated, err := DoEstimateGas(ctx, b, callArgs, pendingBlockNr, b.RPCGasCap())
@@ -1429,9 +1474,9 @@ func (args *SendTxArgs) toTransaction() *types.Transaction {
 		input = *args.Data
 	}
 	if args.To == nil {
-		return types.NewContractCreation(uint64(*args.Nonce), (*big.Int)(args.Value), uint64(*args.Gas), (*big.Int)(args.GasPrice), input, nil, nil)
+		return types.NewContractCreation(uint64(*args.Nonce), (*big.Int)(args.Value), uint64(*args.Gas), (*big.Int)(args.GasPrice), input, (*big.Int)(args.GasPremium), (*big.Int)(args.FeeCap))
 	}
-	return types.NewTransaction(uint64(*args.Nonce), *args.To, (*big.Int)(args.Value), uint64(*args.Gas), (*big.Int)(args.GasPrice), input, nil, nil)
+	return types.NewTransaction(uint64(*args.Nonce), *args.To, (*big.Int)(args.Value), uint64(*args.Gas), (*big.Int)(args.GasPrice), input, (*big.Int)(args.GasPremium), (*big.Int)(args.FeeCap))
 }
 
 // SubmitTransaction is a helper function that submits tx to txPool and logs a message.
@@ -1507,6 +1552,22 @@ func (s *PublicTransactionPoolAPI) SendRawTransaction(ctx context.Context, encod
 	tx := new(types.Transaction)
 	if err := rlp.DecodeBytes(encodedTx, tx); err != nil {
 		return common.Hash{}, err
+	}
+	// EIP1559 guards
+	if s.b.ChainConfig().IsEIP1559Finalized(s.b.CurrentBlock().Number()) && tx.GasPremium() == nil || tx.FeeCap() == nil || tx.GasPrice() != nil {
+		return common.Hash{}, fmt.Errorf("after block %d EIP1559 is finalized and transactions must contain a GasPremium and FeeCap and not contain a GasPrice", s.b.ChainConfig().EIP1559FinalizedBlock.Uint64())
+	}
+	if !s.b.ChainConfig().IsEIP1559(s.b.CurrentBlock().Number()) && tx.GasPremium() != nil || tx.FeeCap() != nil || tx.GasPrice() == nil {
+		return common.Hash{}, fmt.Errorf("before block %d EIP1559 is not activated and transactions must contain a GasPrice and not contain a GasPremium or FeeCap", s.b.ChainConfig().EIP1559Block.Uint64())
+	}
+	if tx.GasPrice() != nil && (tx.GasPremium() != nil || tx.FeeCap() != nil) {
+		return common.Hash{}, errors.New("if GasPrice is set, GasPremium and FeeCap must not be set")
+	}
+	if tx.FeeCap() != nil && tx.GasPremium() == nil {
+		return common.Hash{}, errors.New("if FeeCap is set, GasPremium must be set")
+	}
+	if tx.GasPremium() != nil && tx.FeeCap() == nil {
+		return common.Hash{}, errors.New("if GasPremium is set, FeeCap must be set")
 	}
 	return SubmitTransaction(ctx, s.b, tx)
 }
