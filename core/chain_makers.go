@@ -39,10 +39,11 @@ type BlockGen struct {
 	header  *types.Header
 	statedb *state.StateDB
 
-	gasPool  *GasPool
-	txs      []*types.Transaction
-	receipts []*types.Receipt
-	uncles   []*types.Header
+	gasPool     *GasPool
+	gasPool1559 *GasPool
+	txs         []*types.Transaction
+	receipts    []*types.Receipt
+	uncles      []*types.Header
 
 	config *params.ChainConfig
 	engine consensus.Engine
@@ -102,8 +103,11 @@ func (b *BlockGen) AddTxWithChain(bc *BlockChain, tx *types.Transaction) {
 	if b.gasPool == nil {
 		b.SetCoinbase(common.Address{})
 	}
+	if b.gasPool1559 == nil && b.config.IsEIP1559(b.header.Number) {
+		b.gasPool1559 = new(GasPool).AddGas(params.MaxGasEIP1559)
+	}
 	b.statedb.Prepare(tx.Hash(), common.Hash{}, len(b.txs))
-	receipt, err := ApplyTransaction(b.config, bc, &b.header.Coinbase, b.gasPool, b.statedb, b.header, tx, &b.header.GasUsed, vm.Config{})
+	receipt, err := ApplyTransaction(b.config, bc, &b.header.Coinbase, b.gasPool, b.gasPool1559, b.statedb, b.header, tx, &b.header.GasUsed, vm.Config{})
 	if err != nil {
 		panic(err)
 	}

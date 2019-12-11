@@ -299,7 +299,23 @@ func (b *SimulatedBackend) EstimateGas(ctx context.Context, call ethereum.CallMs
 // state is modified during execution, make sure to copy it if necessary.
 func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallMsg, block *types.Block, statedb *state.StateDB) ([]byte, uint64, bool, error) {
 	// Ensure message is initialized properly.
-	if call.GasPrice == nil {
+	// EIP1559 guards
+	if b.config.IsEIP1559Finalized(block.Number()) && (call.GasPremium == nil || call.FeeCap == nil || call.GasPrice != nil) {
+		return nil, 0, false, core.ErrTxNotEIP1559
+	}
+	if !b.config.IsEIP1559(block.Number()) && (call.GasPremium != nil || call.FeeCap != nil || call.GasPrice == nil) {
+		return nil, 0, false, core.ErrTxIsEIP1559
+	}
+	if call.GasPrice != nil && (call.GasPremium != nil || call.FeeCap != nil) {
+		return nil, 0, false, core.ErrTxSetsLegacyAndEIP1559Fields
+	}
+	if call.FeeCap != nil && call.GasPremium == nil {
+		return nil, 0, false, errors.New("if FeeCap is set, GasPremium must be set")
+	}
+	if call.GasPremium != nil && call.FeeCap == nil {
+		return nil, 0, false, errors.New("if GasPremium is set, FeeCap must be set")
+	}
+	if call.GasPrice == nil && call.GasPremium == nil {
 		call.GasPrice = big.NewInt(1)
 	}
 	if call.Gas == 0 {
@@ -319,8 +335,12 @@ func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallM
 	// about the transaction and calling mechanisms.
 	vmenv := vm.NewEVM(evmContext, statedb, b.config, vm.Config{})
 	gaspool := new(core.GasPool).AddGas(math.MaxUint64)
+	var gp1559 *core.GasPool
+	if b.config.IsEIP1559(block.Number()) {
+		gp1559 = new(core.GasPool).AddGas(params.MaxGasEIP1559)
+	}
 
-	return core.NewStateTransition(vmenv, msg, gaspool).TransitionDb()
+	return core.NewStateTransition(vmenv, msg, gaspool, gp1559).TransitionDb()
 }
 
 // SendTransaction updates the pending block to include the given transaction.
@@ -328,6 +348,20 @@ func (b *SimulatedBackend) callContract(ctx context.Context, call ethereum.CallM
 func (b *SimulatedBackend) SendTransaction(ctx context.Context, tx *types.Transaction) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// EIP1559 guards
+	if b.config.IsEIP1559Finalized(b.blockchain.CurrentBlock().Number()) && (tx.GasPremium() == nil || tx.FeeCap() == nil || tx.GasPrice() != nil) {
+		return core.ErrTxNotEIP1559
+	}
+	if !b.config.IsEIP1559(b.blockchain.CurrentBlock().Number()) && (tx.GasPremium() != nil || tx.FeeCap() != nil || tx.GasPrice() == nil) {
+		return core.ErrTxIsEIP1559
+	}
+	if tx.GasPrice() != nil && (tx.GasPremium() != nil || tx.FeeCap() != nil) {
+		return core.ErrTxSetsLegacyAndEIP1559Fields
+	}
+	if tx.GasPrice() == nil && (tx.GasPremium() == nil || tx.FeeCap() == nil) {
+		return core.ErrMissingGasFields
+	}
 
 	sender, err := types.Sender(types.NewEIP155Signer(b.config.ChainID), tx)
 	if err != nil {
