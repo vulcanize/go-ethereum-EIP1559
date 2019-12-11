@@ -73,6 +73,9 @@ type Message interface {
 	Nonce() uint64
 	CheckNonce() bool
 	Data() []byte
+
+	GasPremium() *big.Int
+	FeeCap() *big.Int
 }
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
