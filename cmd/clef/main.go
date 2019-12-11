@@ -775,6 +775,7 @@ func testExternalUI(api *core.SignerAPI) {
 			[]byte("Extra data Extra data Extra data  Extra data  Extra data  Extra data  Extra data Extra data"),
 			common.HexToHash("0x0000H45H"),
 			types.BlockNonce{},
+			nil,
 		}
 		cliqueRlp, err := rlp.EncodeToBytes(cliqueHeader)
 		if err != nil {

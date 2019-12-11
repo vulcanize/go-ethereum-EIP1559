@@ -84,6 +84,7 @@ type Header struct {
 	Extra       []byte         `json:"extraData"        gencodec:"required"`
 	MixDigest   common.Hash    `json:"mixHash"`
 	Nonce       BlockNonce     `json:"nonce"`
+	BaseFee     *big.Int       `json:"baseFee"          rlp:"nil"`
 }
 
 // field type overrides for gencodec
@@ -94,7 +95,165 @@ type headerMarshaling struct {
 	GasUsed    hexutil.Uint64
 	Time       hexutil.Uint64
 	Extra      hexutil.Bytes
+	BaseFee    *hexutil.Big
 	Hash       common.Hash `json:"hash"` // adds call to Hash() in MarshalJSON
+}
+
+// EncodeRLP implements rlp.Encoder
+func (h *Header) EncodeRLP(w io.Writer) error {
+	if h.BaseFee == nil {
+		return rlp.Encode(w, []interface{}{
+			h.ParentHash,
+			h.UncleHash,
+			h.Coinbase,
+			h.Root,
+			h.TxHash,
+			h.ReceiptHash,
+			h.Bloom,
+			h.Difficulty,
+			h.Number,
+			h.GasLimit,
+			h.GasUsed,
+			h.Time,
+			h.Extra,
+			h.MixDigest,
+			h.Nonce,
+		})
+	}
+	return rlp.Encode(w, []interface{}{
+		h.ParentHash,
+		h.UncleHash,
+		h.Coinbase,
+		h.Root,
+		h.TxHash,
+		h.ReceiptHash,
+		h.Bloom,
+		h.Difficulty,
+		h.Number,
+		h.GasLimit,
+		h.GasUsed,
+		h.Time,
+		h.Extra,
+		h.MixDigest,
+		h.Nonce,
+		h.BaseFee,
+	})
+}
+
+// DecodeRLP implements rlp.Decoder
+func (h *Header) DecodeRLP(s *rlp.Stream) error {
+	_, err := s.List()
+	if err != nil {
+		return err
+	}
+	parentHash := new(common.Hash)
+	if err = s.Decode(parentHash); err != nil {
+		return err
+	}
+	uncleHash := new(common.Hash)
+	if err = s.Decode(uncleHash); err != nil {
+		return err
+	}
+	coinbase := new(common.Address)
+	if err = s.Decode(coinbase); err != nil {
+		return err
+	}
+	root := new(common.Hash)
+	if err = s.Decode(root); err != nil {
+		return err
+	}
+	txHash := new(common.Hash)
+	if err = s.Decode(txHash); err != nil {
+		return err
+	}
+	receiptHash := new(common.Hash)
+	if err = s.Decode(receiptHash); err != nil {
+		return err
+	}
+	bloom := new(Bloom)
+	if err = s.Decode(bloom); err != nil {
+		return err
+	}
+	difficulty := new(big.Int)
+	if err = s.Decode(difficulty); err != nil {
+		return err
+	}
+	number := new(big.Int)
+	if err = s.Decode(number); err != nil {
+		return err
+	}
+	gasLimit := new(uint64)
+	if err = s.Decode(gasLimit); err != nil {
+		return err
+	}
+	gasUsed := new(uint64)
+	if err = s.Decode(gasUsed); err != nil {
+		return err
+	}
+	time := new(uint64)
+	if err = s.Decode(time); err != nil {
+		return err
+	}
+	extra := new([]byte)
+	if err = s.Decode(extra); err != nil {
+		return err
+	}
+	mixDigest := new(common.Hash)
+	if err = s.Decode(mixDigest); err != nil {
+		return err
+	}
+	nonce := new(BlockNonce)
+	if err = s.Decode(nonce); err != nil {
+		return err
+	}
+	// if this is the end of the list then we are decoding a legacy header
+	if err = s.ListEnd(); err == nil {
+		h.ParentHash = *parentHash
+		h.UncleHash = *uncleHash
+		h.Coinbase = *coinbase
+		h.Root = *root
+		h.TxHash = *txHash
+		h.ReceiptHash = *receiptHash
+		h.Bloom = *bloom
+		h.Difficulty = difficulty
+		h.Number = number
+		h.GasLimit = *gasLimit
+		h.GasUsed = *gasUsed
+		h.Time = *time
+		h.Extra = *extra
+		h.MixDigest = *mixDigest
+		h.Nonce = *nonce
+		return nil
+	}
+	// if we are not at the end of the list, continue decoding the 1559 header fields
+	if err != rlp.ErrNotAtEOL {
+		return err
+	}
+	baseFee := new(big.Int)
+	if err = s.Decode(baseFee); err != nil {
+		return err
+	}
+	// we should now be at the end of the list even for a 1559 transaction
+	if err = s.ListEnd(); err != nil {
+		return err
+	}
+	h.ParentHash = *parentHash
+	h.UncleHash = *uncleHash
+	h.Coinbase = *coinbase
+	h.Root = *root
+	h.TxHash = *txHash
+	h.ReceiptHash = *receiptHash
+	h.Bloom = *bloom
+	h.Difficulty = difficulty
+	h.Number = number
+	h.GasLimit = *gasLimit
+	h.GasUsed = *gasUsed
+	h.Time = *time
+	h.Extra = *extra
+	h.MixDigest = *mixDigest
+	h.Nonce = *nonce
+	h.BaseFee = baseFee
+	return nil
 }
 
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
@@ -318,6 +477,7 @@ func (b *Block) TxHash() common.Hash      { return b.header.TxHash }
 func (b *Block) ReceiptHash() common.Hash { return b.header.ReceiptHash }
 func (b *Block) UncleHash() common.Hash   { return b.header.UncleHash }
 func (b *Block) Extra() []byte            { return common.CopyBytes(b.header.Extra) }
+func (b *Block) BaseFee() *big.Int        { return b.header.BaseFee }
 
 func (b *Block) Header() *Header { return CopyHeader(b.header) }
 
