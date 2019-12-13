@@ -200,17 +200,17 @@ type Transaction struct {
 
 // NewContractCreation creates a new transaction for deploying a new contract with
 // the given properties.
-func NewContractCreation(nonce int64, amount *BigInt, gasLimit int64, gasPrice *BigInt, data []byte, gasPremium, feeCap *big.Int) *Transaction {
-	return &Transaction{types.NewContractCreation(uint64(nonce), amount.bigint, uint64(gasLimit), gasPrice.bigint, common.CopyBytes(data), gasPremium, feeCap)}
+func NewContractCreation(nonce int64, amount *BigInt, gasLimit int64, gasPrice *BigInt, data []byte, gasPremium, feeCap *BigInt) *Transaction {
+	return &Transaction{types.NewContractCreation(uint64(nonce), amount.bigint, uint64(gasLimit), gasPrice.bigint, common.CopyBytes(data), gasPremium.bigint, feeCap.bigint)}
 }
 
 // NewTransaction creates a new transaction with the given properties. Contracts
 // can be created by transacting with a nil recipient.
-func NewTransaction(nonce int64, to *Address, amount *BigInt, gasLimit int64, gasPrice *BigInt, data []byte, gasPremium, feeCap *big.Int) *Transaction {
+func NewTransaction(nonce int64, to *Address, amount *BigInt, gasLimit int64, gasPrice *BigInt, data []byte, gasPremium, feeCap *BigInt) *Transaction {
 	if to == nil {
-		return &Transaction{types.NewContractCreation(uint64(nonce), amount.bigint, uint64(gasLimit), gasPrice.bigint, common.CopyBytes(data), gasPremium, feeCap)}
+		return &Transaction{types.NewContractCreation(uint64(nonce), amount.bigint, uint64(gasLimit), gasPrice.bigint, common.CopyBytes(data), gasPremium.bigint, feeCap.bigint)}
 	}
-	return &Transaction{types.NewTransaction(uint64(nonce), to.address, amount.bigint, uint64(gasLimit), gasPrice.bigint, common.CopyBytes(data), gasPremium, feeCap)}
+	return &Transaction{types.NewTransaction(uint64(nonce), to.address, amount.bigint, uint64(gasLimit), gasPrice.bigint, common.CopyBytes(data), gasPremium.bigint, feeCap.bigint)}
 }
 
 // NewTransactionFromRLP parses a transaction from an RLP data dump.
@@ -252,8 +252,8 @@ func (tx *Transaction) GetGasPrice() *BigInt { return &BigInt{tx.tx.GasPrice()} 
 func (tx *Transaction) GetValue() *BigInt    { return &BigInt{tx.tx.Value()} }
 func (tx *Transaction) GetNonce() int64      { return int64(tx.tx.Nonce()) }
 
-func (tx *Transaction) GetHash() *Hash   { return &Hash{tx.tx.Hash()} }
-func (tx *Transaction) GetCost() *BigInt { return &BigInt{tx.tx.Cost()} }
+func (tx *Transaction) GetHash() *Hash                   { return &Hash{tx.tx.Hash()} }
+func (tx *Transaction) GetCost(baseFee *big.Int) *BigInt { return &BigInt{tx.tx.Cost(baseFee)} }
 
 // Deprecated: GetSigHash cannot know which signer to use.
 func (tx *Transaction) GetSigHash() *Hash { return &Hash{types.HomesteadSigner{}.Hash(tx.tx)} }

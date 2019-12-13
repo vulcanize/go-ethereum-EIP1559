@@ -121,7 +121,7 @@ func IntrinsicGas(data []byte, contractCreation, isEIP155 bool, isEIP2028 bool) 
 
 // NewStateTransition initialises and returns a new state transition object.
 func NewStateTransition(evm *vm.EVM, msg Message, gp, gp1559 *GasPool) *StateTransition {
-	isEIP1559 := evm.ChainConfig().IsEIP1559(evm.BlockNumber) && msg.GasPremium() != nil && msg.FeeCap() != nil && evm.BaseFee != nil && gp1559 != nil
+	isEIP1559 := evm.ChainConfig().IsEIP1559(evm.BlockNumber) && msg.GasPrice() == nil && msg.GasPremium() != nil && msg.FeeCap() != nil && evm.BaseFee != nil && gp1559 != nil
 	st := &StateTransition{
 		gp:        gp,
 		gp1559:    gp1559,

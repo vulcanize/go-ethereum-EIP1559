@@ -45,7 +45,7 @@ type Transaction struct {
 
 type txdata struct {
 	AccountNonce uint64          `json:"nonce"    gencodec:"required"`
-	Price        *big.Int        `json:"gasPrice" gencodec:"required"`
+	Price        *big.Int        `json:"gasPrice" rlp:"nil"`
 	GasLimit     uint64          `json:"gas"      gencodec:"required"`
 	Recipient    *common.Address `json:"to"       rlp:"nil"` // nil means contract creation
 	Amount       *big.Int        `json:"value"    gencodec:"required"`
@@ -95,7 +95,6 @@ func newTransaction(nonce uint64, to *common.Address, amount *big.Int, gasLimit 
 		Payload:      data,
 		Amount:       new(big.Int),
 		GasLimit:     gasLimit,
-		Price:        new(big.Int),
 		V:            new(big.Int),
 		R:            new(big.Int),
 		S:            new(big.Int),
@@ -104,7 +103,7 @@ func newTransaction(nonce uint64, to *common.Address, amount *big.Int, gasLimit 
 		d.Amount.Set(amount)
 	}
 	if gasPrice != nil {
-		d.Price.Set(gasPrice)
+		d.Price = gasPrice
 	}
 	if gasPremium != nil {
 		d.GasPremium = gasPremium
@@ -245,7 +244,7 @@ func (tx *Transaction) DecodeRLP(stream *rlp.Stream) error {
 	}
 	tx.data = txdata{
 		AccountNonce: *accountNonce,
-		Price:        price,
+		Price:        nil,
 		GasLimit:     *gasLimit,
 		Recipient:    recipient,
 		Amount:       amount,
@@ -295,7 +294,7 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 
 func (tx *Transaction) Data() []byte         { return common.CopyBytes(tx.data.Payload) }
 func (tx *Transaction) Gas() uint64          { return tx.data.GasLimit }
-func (tx *Transaction) GasPrice() *big.Int   { return new(big.Int).Set(tx.data.Price) }
+func (tx *Transaction) GasPrice() *big.Int   { return tx.data.Price }
 func (tx *Transaction) Value() *big.Int      { return new(big.Int).Set(tx.data.Amount) }
 func (tx *Transaction) Nonce() uint64        { return tx.data.AccountNonce }
 func (tx *Transaction) CheckNonce() bool     { return true }
@@ -344,7 +343,7 @@ func (tx *Transaction) AsMessage(s Signer) (Message, error) {
 	msg := Message{
 		nonce:      tx.data.AccountNonce,
 		gasLimit:   tx.data.GasLimit,
-		gasPrice:   new(big.Int).Set(tx.data.Price),
+		gasPrice:   tx.data.Price,
 		to:         tx.data.Recipient,
 		amount:     tx.data.Amount,
 		data:       tx.data.Payload,
@@ -371,10 +370,22 @@ func (tx *Transaction) WithSignature(signer Signer, sig []byte) (*Transaction, e
 }
 
 // Cost returns amount + gasprice * gaslimit.
-func (tx *Transaction) Cost() *big.Int {
-	total := new(big.Int).Mul(tx.data.Price, new(big.Int).SetUint64(tx.data.GasLimit))
-	total.Add(total, tx.data.Amount)
-	return total
+func (tx *Transaction) Cost(baseFee *big.Int) *big.Int {
+	if tx.data.Price != nil {
+		total := new(big.Int).Mul(tx.data.Price, new(big.Int).SetUint64(tx.data.GasLimit))
+		total.Add(total, tx.data.Amount)
+		return total
+	}
+	if baseFee != nil && tx.data.GasPremium != nil && tx.data.FeeCap != nil {
+		eip1559GasPrice := new(big.Int).Add(baseFee, tx.data.GasPremium)
+		if eip1559GasPrice.Cmp(tx.data.FeeCap) > 0 {
+			eip1559GasPrice.Set(tx.data.FeeCap)
+		}
+		total := new(big.Int).Mul(eip1559GasPrice, new(big.Int).SetUint64(tx.data.GasLimit))
+		total.Add(total, tx.data.Amount)
+		return total
+	}
+	return nil
 }
 
 // RawSignatureValues returns the V, R, S signature values of the transaction.
