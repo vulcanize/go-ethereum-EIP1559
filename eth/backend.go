@@ -135,7 +135,7 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
-	chainConfig, genesisHash, genesisErr := core.SetupGenesisBlockWithOverride(chainDb, config.Genesis, config.OverrideIstanbul)
+	chainConfig, genesisHash, genesisErr := core.SetupGenesisBlockWithOverride(chainDb, config.Genesis, config.OverrideIstanbul, config.OverrideMuirGlacier)
 	if _, ok := genesisErr.(*params.ConfigCompatError); genesisErr != nil && !ok {
 		return nil, genesisErr
 	}
@@ -215,8 +215,22 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 
 	eth.APIBackend = &EthAPIBackend{ctx.ExtRPCEnabled(), eth, nil}
 	gpoParams := config.GPO
-	if gpoParams.Default == nil {
-		gpoParams.Default = config.Miner.GasPrice
+	if gpoParams.DefaultGasPrice == nil {
+		gpoParams.DefaultGasPrice = config.Miner.GasPrice
+	}
+	if gpoParams.DefaultFeeCap == nil {
+		gpoParams.DefaultFeeCap = config.Miner.GasPrice
+	}
+	if gpoParams.DefaultGasPremium == nil {
+		baseFee := eth.blockchain.CurrentHeader().BaseFee
+		if baseFee == nil {
+			baseFee = new(big.Int).SetUint64(params.EIP1559InitialBaseFee)
+		}
+		gasPremium := new(big.Int).Sub(config.Miner.GasPrice, baseFee)
+		if gasPremium.Cmp(big.NewInt(0)) < 0 {
+			gasPremium = big.NewInt(0)
+		}
+		gpoParams.DefaultGasPremium = gasPremium
 	}
 	eth.APIBackend.gpo = gasprice.NewOracle(eth.APIBackend, gpoParams)
 

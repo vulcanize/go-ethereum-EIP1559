@@ -202,6 +202,10 @@ func (b *EthAPIBackend) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEven
 	return b.eth.BlockChain().SubscribeRemovedLogsEvent(ch)
 }
 
+func (b *EthAPIBackend) SubscribePendingLogsEvent(ch chan<- []*types.Log) event.Subscription {
+	return b.eth.miner.SubscribePendingLogs(ch)
+}
+
 func (b *EthAPIBackend) SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription {
 	return b.eth.BlockChain().SubscribeChainEvent(ch)
 }
@@ -269,6 +273,14 @@ func (b *EthAPIBackend) ProtocolVersion() int {
 
 func (b *EthAPIBackend) SuggestPrice(ctx context.Context) (*big.Int, error) {
 	return b.gpo.SuggestPrice(ctx)
+}
+
+func (b *EthAPIBackend) SuggestPremium(ctx context.Context) (*big.Int, error) {
+	return b.gpo.SuggestPremium(ctx)
+}
+
+func (b *EthAPIBackend) SuggestCap(ctx context.Context) (*big.Int, error) {
+	return b.gpo.SuggestCap(ctx)
 }
 
 func (b *EthAPIBackend) ChainDb() ethdb.Database {

@@ -371,6 +371,16 @@ func (ec *Client) NonceAt(ctx context.Context, account common.Address, blockNumb
 	return uint64(result), err
 }
 
+// BaseFeeAt returns the BaseFee at the given block height.
+// If the blockNumber is nil the latest known BaseFee is returned.
+func (ec *Client) BaseFeeAt(ctx context.Context, blockNumber *big.Int) (*big.Int, error) {
+	header, err := ec.HeaderByNumber(ctx, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	return header.BaseFee, nil
+}
+
 // Filters
 
 // FilterLogs executes a filter query.
@@ -492,6 +502,26 @@ func (ec *Client) SuggestGasPrice(ctx context.Context) (*big.Int, error) {
 	return (*big.Int)(&hex), nil
 }
 
+// SuggestGasPremium retrieves the currently suggested gas premium to allow a timely
+// execution of a transaction
+func (ec *Client) SuggestGasPremium(ctx context.Context) (*big.Int, error) {
+	var hex hexutil.Big
+	if err := ec.c.CallContext(ctx, &hex, "eth_gasPremium"); err != nil {
+		return nil, err
+	}
+	return (*big.Int)(&hex), nil
+}
+
+// SuggestFeeCap retrieves the currently suggested fee cap to allow a timely
+// execution of a transaction
+func (ec *Client) SuggestFeeCap(ctx context.Context) (*big.Int, error) {
+	var hex hexutil.Big
+	if err := ec.c.CallContext(ctx, &hex, "eth_feeCap"); err != nil {
+		return nil, err
+	}
+	return (*big.Int)(&hex), nil
+}
+
 // EstimateGas tries to estimate the gas needed to execute a specific transaction based on
 // the current pending state of the backend blockchain. There is no guarantee that this is
 // the true gas limit requirement as other transactions may be added or removed by miners,
@@ -514,7 +544,7 @@ func (ec *Client) SendTransaction(ctx context.Context, tx *types.Transaction) er
 	if err != nil {
 		return err
 	}
-	return ec.c.CallContext(ctx, nil, "eth_sendRawTransaction", common.ToHex(data))
+	return ec.c.CallContext(ctx, nil, "eth_sendRawTransaction", hexutil.Encode(data))
 }
 
 func toCallArg(msg ethereum.CallMsg) interface{} {

@@ -42,6 +42,7 @@ var (
 			dnsSignCommand,
 			dnsTXTCommand,
 			dnsCloudflareCommand,
+			dnsRoute53Command,
 		},
 	}
 	dnsSyncCommand = cli.Command{
@@ -66,10 +67,17 @@ var (
 	}
 	dnsCloudflareCommand = cli.Command{
 		Name:      "to-cloudflare",
-		Usage:     "Deploy DNS TXT records to cloudflare",
+		Usage:     "Deploy DNS TXT records to CloudFlare",
 		ArgsUsage: "<tree-directory>",
 		Action:    dnsToCloudflare,
 		Flags:     []cli.Flag{cloudflareTokenFlag, cloudflareZoneIDFlag},
+	}
+	dnsRoute53Command = cli.Command{
+		Name:      "to-route53",
+		Usage:     "Deploy DNS TXT records to Amazon Route53",
+		ArgsUsage: "<tree-directory>",
+		Action:    dnsToRoute53,
+		Flags:     []cli.Flag{route53AccessKeyFlag, route53AccessSecretFlag, route53ZoneIDFlag},
 	}
 )
 
@@ -194,6 +202,19 @@ func dnsToCloudflare(ctx *cli.Context) error {
 	return client.deploy(domain, t)
 }
 
+// dnsToRoute53 peforms dnsRoute53Command.
+func dnsToRoute53(ctx *cli.Context) error {
+	if ctx.NArg() < 1 {
+		return fmt.Errorf("need tree definition directory as argument")
+	}
+	domain, t, err := loadTreeDefinitionForExport(ctx.Args().Get(0))
+	if err != nil {
+		return err
+	}
+	client := newRoute53Client(ctx)
+	return client.deploy(domain, t)
+}
+
 // loadSigningKey loads a private key in Ethereum keystore format.
 func loadSigningKey(keyfile string) *ecdsa.PrivateKey {
 	keyjson, err := ioutil.ReadFile(keyfile)
@@ -214,8 +235,7 @@ func dnsClient(ctx *cli.Context) *dnsdisc.Client {
 	if commandHasFlag(ctx, dnsTimeoutFlag) {
 		cfg.Timeout = ctx.Duration(dnsTimeoutFlag.Name)
 	}
-	c, _ := dnsdisc.NewClient(cfg) // cannot fail because no URLs given
-	return c
+	return dnsdisc.NewClient(cfg)
 }
 
 // There are two file formats for DNS node trees on disk:
