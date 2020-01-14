@@ -87,9 +87,10 @@ type Ethereum struct {
 
 	APIBackend *EthAPIBackend
 
-	miner     *miner.Miner
-	gasPrice  *big.Int
-	etherbase common.Address
+	miner         *miner.Miner
+	gasPrice      *big.Int
+	perTxGasLimit uint64
+	etherbase     common.Address
 
 	networkID     uint64
 	netRPCService *ethapi.PublicNetAPI
@@ -150,6 +151,7 @@ func New(ctx *node.ServiceContext, config *Config) (*Ethereum, error) {
 		shutdownChan:   make(chan bool),
 		networkID:      config.NetworkId,
 		gasPrice:       config.Miner.GasPrice,
+		perTxGasLimit:  config.Miner.PerTxGasLimit,
 		etherbase:      config.Miner.Etherbase,
 		bloomRequests:  make(chan chan *bloombits.Retrieval),
 		bloomIndexer:   NewBloomIndexer(chainDb, params.BloomBitsBlocks, params.BloomConfirms),
@@ -461,8 +463,10 @@ func (s *Ethereum) StartMining(threads int) error {
 		// Propagate the initial price point to the transaction pool
 		s.lock.RLock()
 		price := s.gasPrice
+		limit := s.perTxGasLimit
 		s.lock.RUnlock()
 		s.txPool.SetGasPrice(price)
+		s.txPool.SetPerTxGasLimit(limit)
 
 		// Configure the local mining address
 		eb, err := s.Etherbase()
