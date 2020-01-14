@@ -19,6 +19,7 @@ package les
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -147,6 +148,20 @@ func New(ctx *node.ServiceContext, config *eth.Config) (*LightEthereum, error) {
 	gpoParams := config.GPO
 	if gpoParams.DefaultGasPrice == nil {
 		gpoParams.DefaultGasPrice = config.Miner.GasPrice
+	}
+	if gpoParams.DefaultFeeCap == nil {
+		gpoParams.DefaultFeeCap = config.Miner.GasPrice
+	}
+	if gpoParams.DefaultGasPremium == nil {
+		baseFee := leth.blockchain.CurrentHeader().BaseFee
+		if baseFee == nil {
+			baseFee = new(big.Int).SetUint64(params.EIP1559InitialBaseFee)
+		}
+		gasPremium := new(big.Int).Sub(config.Miner.GasPrice, baseFee)
+		if gasPremium.Cmp(big.NewInt(0)) < 0 {
+			gasPremium = big.NewInt(0)
+		}
+		gpoParams.DefaultGasPremium = gasPremium
 	}
 	leth.ApiBackend.gpo = gasprice.NewOracle(leth.ApiBackend, gpoParams)
 
